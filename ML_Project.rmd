@@ -1,0 +1,117 @@
+---
+title: "Practical Machine Learing - Project Work"
+
+---
+### Context
+This is a project for prediction by applying machine learning techniques on Human Activity Recognition. 
+
+Six young health participants were asked to perform one set of 10 repetitions of the Unilateral Dumbbell Biceps Curl in five different fashions: exactly according to the specification (Class A), throwing the elbows to the front (Class B), lifting the dumbbell only halfway (Class C), lowering the dumbbell only halfway (Class D) and throwing the hips to the front (Class E). Class A corresponds to the specified execution of the exercise, while the other 4 classes correspond to common mistakes.
+Source: http://groupware.les.inf.puc-rio.br/har#ixzz3jeO0liUo
+
+We are given a data set with data from wearable accelerometers along with the actual movement with each accelerometer reading. The project is to develop and train a model on the dataset, so that the model can predict the movement in a new data set of accelerometer reading.
+
+### Data preprocessing
+
+Loading the given data sets for training and testing as well as the relevant packages.
+```{r message=FALSE}
+library(caret)
+library(randomForest)
+traindat <- read.csv("pml-training.csv")
+testdat <- read.csv("pml-testing.csv")
+```
+
+There are a few columns which cannot be included in the list of predictors for the following reasons
+1. They have a large number of "NA"s
+2. They have a large number of "0" values
+3. They are descriptive variables and hence not sensible predictors
+```{r}
+# Removing columns with large number of NA values
+NAvalues <- sapply(traindat, function(x) mean(is.na(x))) > 0.95
+traindat_clean <- traindat[, NAvalues==FALSE]
+
+# Removing columns that have large number of "0" values
+almostZero <- nearZeroVar(traindat_clean)
+traindat_clean <- traindat_clean[, -almostZero]
+
+# Removing columns with descriptive attributes i.e. the first 5 columns
+traindat_clean <- traindat_clean[,-(1:5)]
+```
+
+We need to observe and understand the out-of-sample error. Therefore the training set needs to be split into two:
+```{r}
+set.seed(123)
+inTrain <- createDataPartition(y=traindat_clean$classe, p=0.7, list=F)
+traindat_1 <- traindat_clean[inTrain,]
+traindat_2 <- traindat_clean[-inTrain,]
+```
+
+### Machine learning algorithm
+Since random forests algorithm are repudetly most accurate, we try this method to start with and see if it throws up accurate results.
+***As a first step we do a cross-validation with a 3-fold.
+``` {r message=FALSE}
+# Doing a 3-fold cross-validation
+modelCV <- trainControl(method="cv", number=3, verboseIter = FALSE)
+
+# Training the model on traindat_1
+modelFit <- train(classe~., data=traindat_1, method="rf", trControl=modelCV)
+modelFit$finalModel
+```
+
+### Evaluation of the model
+Now we apply the model on the second training set to get predictions. We use these predictions to compare with actual values of "classe" variable in "traindat_2".
+```{r}
+# Using the fitted model to make predictions
+prediction <- predict(modelFit, newdata=traindat_2)
+
+# Comparing the predicted values with the actual values
+confusionMatrix(traindat_2$classe, prediction)
+```
+The conclusion from the above is that the random forest method is highly accurate, with Accuracy of 99.8%.
+
+### Preparaing the model for predicting on test set
+We had split the training set into two for developing the model. Therefore it is important that we re-train the model on the entire training data set before we use it on the test set.
+```{r}
+# Running the cross validation again
+fullModelCV <- trainControl(method="cv", number=3, verboseIter=F)
+
+# Fitting the model on the entire training data set
+modelFit <- train(classe~., data=traindat_clean, method="rf", trControl=fullModelCV)
+
+```
+
+### Pre-processing the test set
+Since we preprocessed the training set earlier, we need to make exactly the same changes in the test set before making predictions on it 
+```{r}
+# Removing columns with large number of NA values
+NAvalues <- sapply(testdat, function(x) mean(is.na(x))) > 0.95
+testdat_clean <- testdat[, NAvalues==FALSE]
+
+# Removing columns that have large number of "0" values
+almostZero <- nearZeroVar(testdat_clean)
+testdat_clean <- testdat_clean[, -almostZero]
+
+# Removing columns with descriptive attributes i.e. the first 5 columns
+testdat_clean <- testdat_clean[,-(1:5)]
+```
+
+### Making predictions on the test set
+Now that we have the model fitted on the entire training set and the pre-processed test set, we use it to predict on the test set.
+```{r}
+# Making predictions on test set
+finalPrediction <- predict(modelFit, newdata=testdat_clean)
+
+# Since the function for submission writes characters into files for submission, we convert the prediction output into characters
+output <- as.character(finalPrediction)
+
+# The function to write files for submission
+pml_write_files = function(x){
+  n = length(x)
+  for(i in 1:n){
+    filename = paste0("problem_id_",i,".txt")
+    write.table(x[i],file=filename,quote=FALSE,row.names=FALSE,col.names=FALSE)
+  }
+}
+
+# Writing files for submission using the given function
+pml_write_files(output)
+```
